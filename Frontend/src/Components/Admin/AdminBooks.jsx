@@ -23,6 +23,8 @@ const AdminBooks = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [showForm, setShowForm] = useState(false);
   const [categories, setCategories] = useState([]);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const [showSyncConfirm, setShowSyncConfirm] = useState(false);
 
   useEffect(() => {
     fetchBooks();
@@ -63,54 +65,41 @@ const AdminBooks = () => {
   const handleImageChange = (e) => {
     const file = e.target.files[0];
     if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => { // Tạo URL tạm thời, không phù hợp để lưu vào DB
+        // Lưu base64 vào formData để gửi lên server
+        setFormData(prev => ({
+          ...prev,
+          image: reader.result
+        }));
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
       setSelectedImage(file);
-      setImagePreview(URL.createObjectURL(file));
     }
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      let imageUrl = formData.image;
-
-      // Xử lý upload ảnh nếu có file được chọn
-      if (selectedImage) {
-        // Tạo đối tượng FormData để upload file
-        const imageData = new FormData();
-        imageData.append('image', selectedImage);
-        
-        try {
-          // Giả lập upload ảnh - trong thực tế sẽ gửi đến API upload
-          // Ví dụ: const res = await axios.post(`${API_URL}/upload-image`, imageData);
-          // imageUrl = res.data.url;
-          
-          // Tạm thời dùng local URL cho demo
-          imageUrl = imagePreview;
-          
-          toast.success('Tải ảnh lên thành công');
-        } catch (uploadError) {
-          console.error('Error uploading image:', uploadError);
-          toast.error('Lỗi khi tải ảnh lên');
-          return;
-        }
-      }
-
-      // Cập nhật dữ liệu với URL ảnh mới
-      const updatedData = {
-        ...formData,
-        image: imageUrl
-      };
-
+      // formData.image đã chứa base64 hoặc URL trực tiếp
+      const updatedData = { ...formData };
+      
       if (isEditing) {
         await axios.put(`${API_URL}/book/edit/${formData.id}`, updatedData);
         toast.success('Cập nhật sách thành công');
+        fetchBooks();
+        resetForm();
       } else {
         await axios.post(`${API_URL}/book/add`, updatedData);
         toast.success('Thêm sách mới thành công');
+        
+        // Sau khi thêm sách thành công, gọi API cập nhật sampleBooks.js
+        await axios.post(`${API_URL}/admin/seed-books`);
+        
+        // Hiển thị dialog xác nhận chạy syncBooksNeo4jFull
+        setShowSyncConfirm(true);
       }
-      
-      fetchBooks();
-      resetForm();
     } catch (error) {
       console.error('Error saving book:', error);
       toast.error('Lỗi khi lưu sách');
@@ -167,6 +156,24 @@ const AdminBooks = () => {
     setImagePreview("");
     setIsEditing(false);
     setShowForm(false);
+  };
+
+  const handleSyncConfirm = async () => {
+    setShowSyncConfirm(false);
+    try {
+      await axios.post(`${API_URL}/admin/sync-books`);
+      toast.success('Đồng bộ dữ liệu thành công');
+      fetchBooks();
+    } catch (error) {
+      console.error('Error syncing books:', error);
+      toast.error('Lỗi khi đồng bộ dữ liệu');
+    }
+  };
+
+  const handleSyncCancel = () => {
+    setShowSyncConfirm(false);
+    fetchBooks();
+    resetForm();
   };
 
   if (loading) {
@@ -398,6 +405,31 @@ const AdminBooks = () => {
           </tbody>
         </table>
       </div>
+
+      {/* Thêm dialog xác nhận đồng bộ */}
+      {showSyncConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50">
+          <div className="bg-white dark:bg-slate-800 rounded-lg shadow-lg p-8 w-96 text-center">
+            <h2 className="text-xl font-bold mb-4">Xác nhận đồng bộ dữ liệu</h2>
+            <p className="mb-2">Sách đã được thêm và file đã được cập nhật.</p>
+            <p>Bạn có muốn đồng bộ dữ liệu lên Neo4j không?</p>
+            <div className="flex justify-center gap-4 mt-6">
+              <button
+                onClick={handleSyncCancel}
+                className="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded"
+              >
+                Không
+              </button>
+              <button
+                onClick={handleSyncConfirm}
+                className="bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded"
+              >
+                Có
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
